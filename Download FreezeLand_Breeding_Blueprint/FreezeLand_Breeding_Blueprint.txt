@@ -1,0 +1,49 @@
+Freeze Land Lineage Overview
+============================
+
+Lineage Tree:
+-------------
+Freeze Land
+├── M39 (Montreal 39)
+│   ├── Skunk #1
+│   └── Northern Lights #5
+└── Friesland (aka Freezeland, Fry's Land)
+    ├── Afghani
+    └── Skunk #1
+
+Combined Genetics Summary:
+--------------------------
+Freeze Land ≈ [(Skunk #1 × Northern Lights #5) × (Afghani × Skunk #1)]
+
+Traits:
+-------
+- Cold resistance (from Friesland)
+- Early flowering (from both parents)
+- Heavy yield (from M39)
+- Earthy, piney aroma with mint/citrus notes
+- Deep body relaxation with cerebral calm
+
+Revival Protocol – Phase 1:
+---------------------------
+1. Acquire:
+   - M39 clone (Montreal)
+   - Friesland or Freezeland seeds or clone (may require forum tracking or legacy sources)
+   - Skunk #1 seeds
+   - Afghani landrace
+   - Northern Lights #5 seeds
+
+2. Stepwise Breeding Plan:
+   a. Reconstruct M39 if needed: Cross Skunk #1 × Northern Lights #5
+   b. Reconstruct Friesland: Cross Afghani × Skunk #1
+   c. Cross (Rebuilt M39) × (Rebuilt Friesland)
+   d. Stabilize through phenotype selection (3–5 generations)
+
+3. Archive all traits:
+   - Growth notes
+   - Visual indicators (leaf shape, trichome density)
+   - Yield metrics
+   - Aroma/flavor profiles
+   - Lab test results (if possible)
+
+4. Optional:
+   - Introduce Freeze Land back into original soil/homeland to complete energy cycle

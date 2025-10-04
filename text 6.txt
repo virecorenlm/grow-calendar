@@ -1,0 +1,564 @@
+# Re-run create after environment reset
+
+import os, zipfile, json
+
+root = "/mnt/data/grow_pwa_v0_3a"
+os.makedirs(root, exist_ok=True)
+
+index_html = """\
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Grow Tracker v0.3a (Per‑Day Planner)</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#0b3d0b">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>🌱 Grow Tracker <small>v0.3a</small></h1>
+    <nav>
+      <button id="tab-plants" class="tab active">Plants</button>
+      <button id="tab-events" class="tab">Events</button>
+      <button id="tab-nutrients" class="tab">Nutrients</button>
+      <button id="tab-schedules" class="tab">Schedules</button>
+      <button id="tab-stats" class="tab">Stats</button>
+      <button id="tab-settings" class="tab">Settings</button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="view-plants" class="view visible">
+      <h2>Plants</h2>
+      <form id="plant-form">
+        <div class="grid">
+          <label>Name<input required name="name" placeholder="e.g., Nola"></label>
+          <label>Strain<input name="strain" id="strain-input" placeholder="e.g., GMO Cookies"></label>
+          <label>Stage
+            <select name="stage">
+              <option>seed</option>
+              <option selected>veg</option>
+              <option>flower</option>
+              <option>dry</option>
+              <option>cure</option>
+            </select>
+          </label>
+          <label>Start Date<input type="date" name="start_date"></label>
+          <label>Schedule
+            <select name="schedule_id" id="plant-schedule"></select>
+          </label>
+          <label>Tags<input name="tags" placeholder="comma,separated"></label>
+        </div>
+        <label>Notes<textarea name="notes" rows="3"></textarea></label>
+        <div class="row">
+          <button type="submit">Add Plant</button>
+          <button type="button" id="plant-suggest">Show CURRENT week plan</button>
+          <button type="button" id="quick-water">Log Water (now)</button>
+        </div>
+      </form>
+      <div id="plant-suggestion" class="card hint"></div>
+      <ul id="plant-list"></ul>
+    </section>
+
+    <section id="view-events" class="view">
+      <h2>Events</h2>
+      <form id="event-form">
+        <div class="grid">
+          <label>Plant
+            <select id="event-plant" name="plant_id"></select>
+          </label>
+          <label>Type
+            <select name="type">
+              <option selected>feed</option>
+              <option>water</option>
+              <option>transplant</option>
+              <option>defoliate</option>
+              <option>flip_12_12</option>
+              <option>harvest</option>
+              <option>measure</option>
+            </select>
+          </label>
+          <label>Date/Time<input type="datetime-local" name="when"></label>
+          <label>Volume (ml)<input type="number" step="1" name="volume_ml"></label>
+          <label>pH<input type="number" step="0.01" name="ph"></label>
+          <label>EC/PPM<input type="number" step="0.01" name="ppm"></label>
+        </div>
+        <label>Recipe / Notes<textarea name="notes" rows="3" placeholder="You can paste suggestions here"></textarea></label>
+        <button type="submit">Log Event</button>
+      </form>
+
+      <h3>Recent</h3>
+      <ul id="event-list"></ul>
+    </section>
+
+    <section id="view-nutrients" class="view">
+      <h2>Nutrient Catalog</h2>
+      <form id="nutrient-form">
+        <div class="grid">
+          <label>Brand<input name="brand" placeholder="FoxFarm / EarthBloom / etc"></label>
+          <label>Product<input name="product" placeholder="Grow Big / Bloom Booster"></label>
+          <label>N-P-K<input name="npk" placeholder="e.g., 2-8-4"></label>
+          <label>Type
+            <select name="ptype">
+              <option>veg</option>
+              <option>flower</option>
+              <option>additive</option>
+              <option>microbe</option>
+            </select>
+          </label>
+          <label>Default Dose<input name="dose" type="number" step="0.01" placeholder="e.g., 2"></label>
+          <label>Unit
+            <select name="unit">
+              <option>tsp/gal</option>
+              <option>tbsp/gal</option>
+              <option>ml/L</option>
+              <option>ml/gal</option>
+            </select>
+          </label>
+        </div>
+        <label>Notes<textarea name="notes" rows="2"></textarea></label>
+        <button type="submit">Add Product</button>
+      </form>
+      <ul id="nutrient-list"></ul>
+    </section>
+
+    <section id="view-schedules" class="view">
+      <h2>Schedule Builder (Per‑Day)</h2>
+      <form id="schedule-form">
+        <div class="grid">
+          <label>Name<input name="name" required placeholder="e.g., Ryan Mix v1"></label>
+          <label>Duration (weeks)<input type="number" name="weeks" min="1" value="12"></label>
+        </div>
+        <button type="submit">Create / Update</button>
+      </form>
+
+      <div class="row" style="margin:10px 0;">
+        <label>Active Schedule
+          <select id="schedule-select"></select>
+        </label>
+      </div>
+
+      <div id="schedule-editor" class="card">
+        <div class="row">
+          <label>Product
+            <select id="sched-product"></select>
+          </label>
+          <label>Week<input id="sched-week" type="number" min="1" value="1"></label>
+          <label>Day
+            <select id="sched-day">
+              <option value="1">Mon</option>
+              <option value="2">Tue</option>
+              <option value="3">Wed</option>
+              <option value="4">Thu</option>
+              <option value="5">Fri</option>
+              <option value="6">Sat</option>
+              <option value="7">Sun</option>
+            </select>
+          </label>
+          <label>Amount<input id="sched-amount" type="number" step="0.01" value="1"></label>
+          <label>Unit
+            <select id="sched-unit">
+              <option>tsp/gal</option>
+              <option>tbsp/gal</option>
+              <option>ml/L</option>
+              <option>ml/gal</option>
+            </select>
+          </label>
+          <button id="sched-add" type="button">Add to Day</button>
+        </div>
+        <div id="schedule-grid" class="grid-days"></div>
+      </div>
+    </section>
+
+    <section id="view-stats" class="view">
+      <h2>Stats</h2>
+      <div id="stats-panel">
+        <p>Total plants: <span id="stat-plants">0</span></p>
+        <p>Events logged (30d): <span id="stat-events">0</span></p>
+      </div>
+    </section>
+
+    <section id="view-settings" class="view">
+      <h2>Settings</h2>
+      <button id="export-json">Export JSON</button>
+      <input type="file" id="import-json" accept="application/json">
+      <p class="hint">Data is saved locally (IndexedDB). Export regularly.</p>
+    </section>
+  </main>
+
+  <footer>
+    <small>Per‑day plans + one‑tap logging to Events — v0.3a</small>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
+"""
+
+style_css = """\
+:root {
+  --bg: #0f1a0f;
+  --card: #132813;
+  --text: #e7ffe7;
+  --muted: #a6d5a6;
+  --accent: #61d961;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; }
+header { padding: 12px 16px; background: #0c150c; border-bottom: 1px solid #1f3a1f; }
+h1 { margin: 0 0 8px; font-size: 20px; }
+h1 small { font-weight: 400; color: var(--muted); }
+nav { display: flex; gap: 8px; flex-wrap: wrap; }
+.tab { background: #183618; color: var(--text); border: 1px solid #295229; padding: 6px 10px; border-radius: 6px; cursor: pointer; }
+.tab.active { background: var(--accent); color: #041004; border-color: var(--accent); }
+main { padding: 16px; }
+.view { display: none; }
+.view.visible { display: block; }
+form { background: var(--card); padding: 12px; border: 1px solid #1f3a1f; border-radius: 8px; margin-bottom: 12px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; }
+.grid-days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; }
+label { display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+input, select, textarea, button { border-radius: 6px; border: 1px solid #295229; background: #0e1f0e; color: var(--text); padding: 8px; }
+button { cursor: pointer; }
+ul { list-style: none; padding: 0; margin: 0; }
+li.card { background: var(--card); border: 1px solid #1f3a1f; border-radius: 8px; padding: 10px; margin-bottom: 8px; }
+footer { padding: 12px 16px; border-top: 1px solid #1f3a1f; color: var(--muted); }
+.hint { color: var(--muted); font-size: 12px; }
+.card { background: var(--card); border: 1px solid #1f3a1f; border-radius: 8px; padding: 10px; }
+.cell { background:#0e1f0e; border:1px solid #295229; padding:6px; border-radius:6px; font-size: 12px; min-height: 100px; }
+.cell b { display:block; margin-bottom:6px; }
+.plan-line { display:flex; align-items:center; justify-content:space-between; gap:6px; }
+.plan-line button { padding:2px 6px; font-size:12px; }
+"""
+
+app_js = """\
+// v0.3a per-day planner + one-tap logging
+const DB_NAME = 'grow-tracker-db';
+const DB_VERSION = 4;
+let db;
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains('plants')) db.createObjectStore('plants', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('events')) db.createObjectStore('events', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('nutrients')) db.createObjectStore('nutrients', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('schedules')) db.createObjectStore('schedules', { keyPath: 'id' });
+    };
+    req.onsuccess = () => { db = req.result; resolve(db); };
+    req.onerror = () => reject(req.error);
+  });
+}
+function tx(store, mode='readonly') { return db.transaction(store, mode).objectStore(store); }
+function id() { return Math.random().toString(36).slice(2) + Date.now().toString(36); }
+async function put(store, value) { return new Promise((res, rej)=>{ const r=tx(store,'readwrite').put(value); r.onsuccess=()=>res(value); r.onerror=()=>rej(r.error); }); }
+async function get(store, key) { return new Promise((res, rej)=>{ const r=tx(store).get(key); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
+async function getAll(store) { return new Promise((res, rej)=>{ const r=tx(store).getAll(); r.onsuccess=()=>res(r.result||[]); r.onerror=()=>rej(r.error); }); }
+async function remove(store, key) { return new Promise((res, rej)=>{ const r=tx(store,'readwrite').delete(key); r.onsuccess=()=>res(); r.onerror=()=>rej(r.error); }); }
+
+const $ = (q) => document.querySelector(q);
+const $$ = (q) => Array.from(document.querySelectorAll(q));
+function switchTab(viewId) {
+  $$('.tab').forEach(b => b.classList.remove('active'));
+  $$('.view').forEach(v => v.classList.remove('visible'));
+  document.getElementById('tab-' + viewId.split('-')[1])?.classList.add('active');
+  document.getElementById('view-' + viewId.split('-')[1]).classList.add('visible');
+}
+
+// ---------- Plants ----------
+async function refreshPlants() {
+  const plants = await getAll('plants');
+  const schedules = await getAll('schedules');
+  const list = $('#plant-list');
+  const sel = $('#event-plant');
+  const schedSel = $('#plant-schedule');
+  list.innerHTML = '';
+  sel.innerHTML = '';
+  schedSel.innerHTML = '<option value="">(none)</option>';
+  schedules.forEach(s => {
+    const o = document.createElement('option'); o.value = s.id; o.textContent = s.name; schedSel.appendChild(o);
+  });
+  plants.forEach(p => {
+    const li = document.createElement('li');
+    li.className = 'card';
+    const sched = schedules.find(s=>s.id===p.schedule_id);
+    li.innerHTML = `<b>${p.name}</b> — ${p.strain||'—'} · <i>${p.stage}</i> · start ${p.start_date||'—'}<br>
+      Schedule: ${sched ? sched.name : '—'}<br>
+      <small>${p.tags||''}</small><br>${p.notes||''}
+      <div style="margin-top:6px;display:flex;gap:6px;">
+        <button data-del="${p.id}">Delete</button>
+      </div>`;
+    list.appendChild(li);
+    const opt = document.createElement('option'); opt.value = p.id; opt.textContent = p.name; sel.appendChild(opt);
+  });
+  list.querySelectorAll('button[data-del]').forEach(btn => {
+    btn.addEventListener('click', async () => { await remove('plants', btn.dataset.del); await refreshPlants(); });
+  });
+}
+async function addPlant(form) {
+  const data = Object.fromEntries(new FormData(form));
+  const plant = {
+    id: id(),
+    name: data.name.trim(),
+    strain: data.strain.trim(),
+    stage: data.stage,
+    start_date: data.start_date || null,
+    schedule_id: data.schedule_id || '',
+    tags: data.tags.trim(),
+    notes: data.notes.trim(),
+    created_at: new Date().toISOString()
+  };
+  await put('plants', plant);
+  form.reset();
+  $('#plant-suggestion').textContent='';
+  await refreshPlants();
+}
+function weekNumberFromStart(startDateStr) {
+  if (!startDateStr) return 1;
+  const start = new Date(startDateStr).getTime();
+  const now = Date.now();
+  const w = Math.floor((now-start)/(7*24*60*60*1000)) + 1;
+  return Math.max(1, w);
+}
+const dayNames = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+async function suggestCurrentFeed() {
+  const plants = await getAll('plants');
+  if (plants.length===0) { $('#plant-suggestion').textContent='No plants yet.'; return; }
+  const p = plants[plants.length-1]; // last added
+  const schedules = await getAll('schedules');
+  const nutrients = await getAll('nutrients');
+  const sched = schedules.find(s=>s.id===p.schedule_id);
+  if (!sched) { $('#plant-suggestion').textContent='No schedule attached to latest plant.'; return; }
+  const w = weekNumberFromStart(p.start_date);
+  const items = (sched.entries||[]).filter(e=>e.week===w);
+  if (!items.length) { $('#plant-suggestion').textContent=`Week ${w}: no entries.`; return; }
+  const lines = items.map(e=>{
+    const prod = nutrients.find(n=>n.id===e.product_id);
+    const name = prod ? `${prod.brand} ${prod.product}` : e.product_id;
+    const day = dayNames[(e.day||1)-1] || '—';
+    return `• [${day}] ${name}: ${e.amount} ${e.unit} <button data-log='${JSON.stringify(e).replace(/'/g,'&apos;')}'>Log</button>`;
+  });
+  $('#plant-suggestion').innerHTML = `<b>${p.name}</b> — Week ${w}<br>${lines.join('<br>')}`;
+  $('#plant-suggestion').querySelectorAll('button[data-log]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const plan = JSON.parse(btn.dataset.log);
+      await logPlannedEvent(p, plan);
+      btn.textContent = 'Logged ✓';
+      btn.disabled = true;
+    });
+  });
+}
+async function quickWater() {
+  const plants = await getAll('plants');
+  if (!plants.length) return alert('No plants yet.');
+  const p = plants[plants.length-1];
+  const ev = { id:id(), plant_id:p.id, plant_name:p.name, type:'water', when: new Date().toISOString(), notes:'Quick water' };
+  await put('events', ev);
+  await refreshEvents();
+  alert('Water logged.');
+}
+
+// ---------- Events ----------
+async function refreshEvents() {
+  const events = (await getAll('events')).sort((a,b)=> new Date(b.when) - new Date(a.when));
+  const ul = $('#event-list'); ul.innerHTML = '';
+  for (const ev of events) {
+    const li = document.createElement('li'); li.className='card';
+    li.innerHTML = `<b>${ev.type}</b> @ ${new Date(ev.when).toLocaleString()} — ${ev.plant_name||ev.plant_id}<br>${ev.notes||''}`;
+    ul.appendChild(li);
+  }
+}
+async function addEvent(form) {
+  const data = Object.fromEntries(new FormData(form));
+  const plants = await getAll('plants');
+  const plant = plants.find(p => p.id === data.plant_id);
+  const ev = {
+    id: id(),
+    plant_id: data.plant_id,
+    plant_name: plant ? plant.name : data.plant_id,
+    type: data.type,
+    when: data.when || new Date().toISOString(),
+    volume_ml: data.volume_ml ? Number(data.volume_ml) : null,
+    ph: data.ph ? Number(data.ph) : null,
+    ppm: data.ppm ? Number(data.ppm) : null,
+    notes: data.notes?.trim() || ''
+  };
+  await put('events', ev);
+  form.reset();
+  await refreshEvents();
+}
+async function logPlannedEvent(plant, plan) {
+  const nutrients = await getAll('nutrients');
+  const prod = nutrients.find(n=>n.id===plan.product_id);
+  const title = prod ? `${prod.brand} ${prod.product}` : plan.product_id;
+  const ev = {
+    id: id(),
+    plant_id: plant.id,
+    plant_name: plant.name,
+    type: 'feed',
+    when: new Date().toISOString(),
+    notes: `${title}: ${plan.amount} ${plan.unit} [Week ${plan.week} ${dayNames[(plan.day||1)-1]}]`
+  };
+  await put('events', ev);
+  await refreshEvents();
+}
+
+// ---------- Nutrients ----------
+async function refreshNutrients() {
+  const list = $('#nutrient-list'); list.innerHTML='';
+  const prods = await getAll('nutrients');
+  prods.forEach(n => {
+    const li = document.createElement('li'); li.className='card';
+    li.innerHTML = `<b>${n.brand} ${n.product}</b> — ${n.npk||'NPK?'} (${n.ptype}) · Default: ${n.dose||'-'} ${n.unit||''}<br><small>${n.notes||''}</small>`;
+    list.appendChild(li);
+  });
+  const sel = $('#sched-product'); sel.innerHTML='';
+  prods.forEach(n => { const o=document.createElement('option'); o.value=n.id; o.textContent=`${n.brand} ${n.product}`; sel.appendChild(o); });
+}
+
+// ---------- Schedules ----------
+async function refreshSchedules() {
+  const schedules = await getAll('schedules');
+  const sel = $('#schedule-select'); sel.innerHTML='';
+  schedules.forEach(s => { const o=document.createElement('option'); o.value=s.id; o.textContent=s.name; sel.appendChild(o); });
+  await renderScheduleGrid();
+}
+async function createOrUpdateSchedule(form) {
+  const d = Object.fromEntries(new FormData(form));
+  const name = d.name.trim();
+  const weeks = Number(d.weeks)||12;
+  const schedules = await getAll('schedules');
+  let s = schedules.find(x=>x.name.toLowerCase()===name.toLowerCase());
+  if (!s) { s = { id:id(), name, weeks, entries:[] }; }
+  else { s.weeks = weeks; }
+  await put('schedules', s);
+  await refreshSchedules();
+}
+async function getActiveSchedule() {
+  const idSel = $('#schedule-select').value;
+  if (!idSel) return null;
+  return await get('schedules', idSel);
+}
+async function addEntryToSchedule() {
+  let s = await getActiveSchedule();
+  if (!s) return alert('Select a schedule first');
+  const product_id = $('#sched-product').value;
+  const amount = Number($('#sched-amount').value);
+  const unit = $('#sched-unit').value;
+  const week = Number($('#sched-week').value);
+  const day = Number($('#sched-day').value); // 1-7
+  s.entries = s.entries || [];
+  s.entries.push({ product_id, amount, unit, week, day });
+  await put('schedules', s);
+  await renderScheduleGrid();
+}
+async function renderScheduleGrid() {
+  const grid = $('#schedule-grid'); grid.innerHTML='';
+  const s = await getActiveSchedule();
+  const prods = await getAll('nutrients');
+  if (!s) { grid.textContent='No schedule selected.'; return; }
+
+  for (let w=1; w<=s.weeks; w++) {
+    for (let d=1; d<=7; d++) {
+      const cell = document.createElement('div'); cell.className='cell';
+      const dayLabel = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][d-1];
+      const items = (s.entries||[]).filter(e => e.week===w && e.day===d);
+      const lines = items.map(e => {
+        const prod = prods.find(p=>p.id===e.product_id);
+        const name = prod ? `${prod.brand} ${prod.product}` : e.product_id;
+        return `<div class="plan-line">${name}: ${e.amount} ${e.unit}</div>`;
+      }).join('') || '<i>—</i>';
+      cell.innerHTML = `<b>Week ${w} • ${dayLabel}</b>${lines}`;
+      grid.appendChild(cell);
+    }
+  }
+}
+
+// ---------- Stats ----------
+async function refreshStats() {
+  const plants = await getAll('plants'); $('#stat-plants').textContent = plants.length;
+  const events = await getAll('events');
+  const now = Date.now(), day30 = 30*24*60*60*1000;
+  $('#stat-events').textContent = events.filter(e=> now - new Date(e.when).getTime() < day30).length;
+}
+
+// ---------- Export/Import ----------
+async function exportJSON() {
+  const data = {
+    plants: await getAll('plants'),
+    events: await getAll('events'),
+    nutrients: await getAll('nutrients'),
+    schedules: await getAll('schedules'),
+    exported_at: new Date().toISOString()
+  };
+  const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
+  const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='grow_tracker_v0_3a_export.json'; a.click();
+}
+async function importJSON(file) {
+  const text = await file.text(); const data = JSON.parse(text);
+  for (const k of ['plants','events','nutrients','schedules']) {
+    if (Array.isArray(data[k])) for (const item of data[k]) await put(k, item);
+  }
+  await refreshPlants(); await refreshEvents(); await refreshNutrients(); await refreshSchedules(); await refreshStats();
+}
+
+// ---------- Wiring ----------
+$('#tab-plants').addEventListener('click', ()=>switchTab('view-plants'));
+$('#tab-events').addEventListener('click', ()=>switchTab('view-events'));
+$('#tab-nutrients').addEventListener('click', ()=>switchTab('view-nutrients'));
+$('#tab-schedules').addEventListener('click', ()=>switchTab('view-schedules'));
+$('#tab-stats').addEventListener('click', ()=>switchTab('view-stats'));
+$('#tab-settings').addEventListener('click', ()=>switchTab('view-settings'));
+
+$('#plant-form').addEventListener('submit', (e)=>{ e.preventDefault(); addPlant(e.target); });
+$('#plant-suggest').addEventListener('click', suggestCurrentFeed);
+$('#quick-water').addEventListener('click', quickWater);
+
+$('#event-form').addEventListener('submit', (e)=>{ e.preventDefault(); addEvent(e.target); });
+
+$('#nutrient-form').addEventListener('submit', (e)=>{ e.preventDefault(); addNutrient(e.target); });
+
+$('#schedule-form').addEventListener('submit', (e)=>{ e.preventDefault(); createOrUpdateSchedule(e.target); });
+$('#schedule-select').addEventListener('change', renderScheduleGrid);
+$('#sched-add').addEventListener('click', addEntryToSchedule);
+
+$('#export-json').addEventListener('click', exportJSON);
+$('#import-json').addEventListener('change', (e)=>{ if (e.target.files[0]) importJSON(e.target.files[0]); });
+
+// Init
+(async function init(){
+  await openDB();
+  await refreshNutrients();
+  await refreshSchedules();
+  await refreshPlants();
+  await refreshEvents();
+  await refreshStats();
+})();
+"""
+
+manifest = {
+  "name": "Grow Tracker",
+  "short_name": "Grow",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0b3d0b",
+  "theme_color": "#0b3d0b",
+  "icons": []
+}
+with open(os.path.join(root,"index.html"),"w",encoding="utf-8") as f: f.write(index_html)
+with open(os.path.join(root,"style.css"),"w",encoding="utf-8") as f: f.write(style_css)
+with open(os.path.join(root,"app.js"),"w",encoding="utf-8") as f: f.write(app_js)
+with open(os.path.join(root,"manifest.webmanifest"),"w",encoding="utf-8") as f: f.write(json.dumps(manifest,indent=2))
+with open(os.path.join(root,"sw.js"),"w",encoding="utf-8") as f: f.write("// cache shell")
+with open(os.path.join(root,"README.txt"),"w",encoding="utf-8") as f: f.write("v0.3a per-day planner + one-tap logging\n")
+
+zip_path = "/mnt/data/grow_tracker_pwa_v0_3a.zip"
+with zipfile.ZipFile(zip_path,"w",compression=zipfile.ZIP_DEFLATED) as z:
+    for name in ["index.html","style.css","app.js","manifest.webmanifest","sw.js","README.txt"]:
+        z.write(os.path.join(root,name),arcname=name)
+
+zip_path

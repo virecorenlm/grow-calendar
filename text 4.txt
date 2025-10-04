@@ -1,0 +1,225 @@
+# Create a starter strains.json and a tiny Node/Express proxy that can fetch from a local JSON
+# or pass-through to another source. Bundle into a zip for the user.
+
+import os, zipfile, json, textwrap, datetime
+
+root = "/mnt/data/grow_strain_kit"
+os.makedirs(root, exist_ok=True)
+
+# Starter strains.json with a few examples
+strains = [
+  {
+    "name": "GMO Cookies",
+    "type": "indica-leaning hybrid",
+    "lineage": "Girl Scout Cookies x Chemdawg",
+    "thc": "25-30%",
+    "cbd": "<1%",
+    "terpenes": "caryophyllene, limonene, humulene",
+    "effects": "relaxing, heavy, couch-lock potential",
+    "aroma": "garlic, diesel, earth",
+    "notes": "High potency; ease up for new users."
+  },
+  {
+    "name": "Blue Dream",
+    "type": "sativa-leaning hybrid",
+    "lineage": "Blueberry x Haze",
+    "thc": "18-24%",
+    "cbd": "<1%",
+    "terpenes": "myrcene, pinene, caryophyllene",
+    "effects": "uplifting, clear-headed, creative",
+    "aroma": "berry, sweet, herbal",
+    "notes": "Crowd favorite; balanced daytime strain."
+  },
+  {
+    "name": "Wedding Cake",
+    "type": "indica-leaning hybrid",
+    "lineage": "Triangle Kush x Animal Mints",
+    "thc": "20-27%",
+    "cbd": "<1%",
+    "terpenes": "limonene, caryophyllene, linalool",
+    "effects": "relaxing, euphoric, appetite-stimulating",
+    "aroma": "vanilla, earthy, pepper",
+    "notes": "Often dense buds; strong evening option."
+  },
+  {
+    "name": "GSC",
+    "type": "hybrid",
+    "lineage": "OG Kush x Durban Poison",
+    "thc": "19-25%",
+    "cbd": "<1%",
+    "terpenes": "caryophyllene, limonene, humulene",
+    "effects": "calming, euphoric, full-body",
+    "aroma": "sweet, earthy, mint",
+    "notes": "Classic; sometimes called Girl Scout Cookies."
+  }
+]
+
+with open(os.path.join(root, "strains.json"), "w", encoding="utf-8") as f:
+  json.dump(strains, f, indent=2)
+
+# Node proxy files
+server_js = """\
+// Tiny strain proxy server (Express)
+// Usage:
+//   1) npm install
+//   2) node server.js
+//   3) GET http://localhost:3000/strain?name=Blue%20Dream
+//
+// Features:
+// - CORS enabled so your PWA can call it directly
+// - Looks up locally from strains.json by default
+// - Optional passthrough to an upstream API if you set UPSTREAM_URL (must include {name})
+//
+// ⚠️ Respect website Terms of Service. Avoid scraping sites that disallow it.
+//    Prefer official APIs or your own curated JSON.
+
+import express from 'express';
+import cors from 'cors';
+import fetch from 'node-fetch';
+import fs from 'fs/promises';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const app = express();
+app.use(cors());
+const PORT = process.env.PORT || 3000;
+
+// Config:
+// - LOCAL_JSON_PATH: path to strains.json
+// - UPSTREAM_URL: e.g., "https://your-api.example/lookup?term={name}"
+const LOCAL_JSON_PATH = process.env.LOCAL_JSON_PATH || path.join(__dirname, 'strains.json');
+const UPSTREAM_URL = process.env.UPSTREAM_URL || '';
+
+app.get('/health', (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
+
+app.get('/strain', async (req, res) => {
+  const name = (req.query.name || '').toString().trim();
+  if (!name) return res.status(400).json({ error: 'Missing name' });
+
+  // 1) Try local JSON
+  try {
+    const raw = await fs.readFile(LOCAL_JSON_PATH, 'utf-8');
+    const arr = JSON.parse(raw);
+    if (Array.isArray(arr)) {
+      const hit = arr.find(x => (x.name || '').toLowerCase() === name.toLowerCase());
+      if (hit) return res.json({ source: 'local', ...hit });
+    }
+  } catch (e) {
+    console.warn('Local JSON lookup failed:', e.message);
+  }
+
+  // 2) Try upstream, if configured
+  if (UPSTREAM_URL) {
+    try {
+      const url = UPSTREAM_URL.replace('{name}', encodeURIComponent(name));
+      const r = await fetch(url, { headers: { 'Accept': 'application/json' } });
+      if (r.ok) {
+        const data = await r.json();
+        return res.json({ source: 'upstream', ...data });
+      } else {
+        console.warn('Upstream error', r.status);
+      }
+    } catch (e) {
+      console.warn('Upstream fetch failed:', e.message);
+    }
+  }
+
+  // Not found
+  res.status(404).json({ error: 'Strain not found locally; no upstream configured', name });
+});
+
+app.listen(PORT, () => {
+  console.log(`Strain proxy listening on port ${PORT}`);
+  console.log(`Try: http://localhost:${PORT}/strain?name=Blue%20Dream`);
+});
+"""
+
+package_json = {
+  "name": "strain-proxy",
+  "version": "0.1.0",
+  "type": "module",
+  "private": True,
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "node-fetch": "^3.3.2"
+  }
+}
+
+readme = f"""\
+# Strain Kit (Starter)
+
+This kit gives you:
+- `strains.json` — your curated local strain dataset
+- `server.js` — a tiny Node/Express proxy that your Grow Tracker PWA can call
+- `package.json` — deps and start script
+
+## Why a proxy?
+Most public sites block direct browser calls (CORS). Your PWA can call **this** proxy,
+and **it** can return clean JSON. Prefer your own JSON or official APIs; respect ToS.
+
+## Quick Start (Local)
+```bash
+cd strain-proxy
+npm install
+npm start
+# open http://localhost:3000/health
+# try  http://localhost:3000/strain?name=Blue%20Dream
+```
+
+## Environment variables (optional)
+- `PORT` — default 3000
+- `LOCAL_JSON_PATH` — path to your local JSON file (default: ./strains.json)
+- `UPSTREAM_URL` — e.g. "https://your-api.example/strain?name={{name}}"
+
+## Deploy to Replit
+1. Create a Node.js repl.
+2. Upload the `strain-proxy/` folder (server.js, package.json, strains.json).
+3. Set **Run** command to `npm start` (Replit auto-installs deps).
+4. Copy the public URL (e.g., `https://strain-proxy.your-repl.repl.co`).
+
+## Point the PWA to your proxy
+In the Grow Tracker v0.2 app:
+- Go to **Settings → Strain Info Providers**
+- Paste your Replit URL into **Proxy API URL**, using `{{name}}` placeholder:
+  `https://strain-proxy.your-repl.repl.co/strain?name={{name}}`
+
+Now when you press **Fetch Strain Info**, the app will call your proxy.
+
+## Updating your dataset
+Edit `strains.json` anytime (new strains, fields). No schema police here—
+just keep `"name"` consistent so lookups match by exact name (case-insensitive).
+
+— Built for Ryan + Vire, {datetime.datetime.now().strftime('%Y-%m-%d')}
+"""
+
+# Write files
+proxy_dir = os.path.join(root, "strain-proxy")
+os.makedirs(proxy_dir, exist_ok=True)
+with open(os.path.join(proxy_dir, "server.js"), "w", encoding="utf-8") as f:
+  f.write(server_js)
+with open(os.path.join(proxy_dir, "package.json"), "w", encoding="utf-8") as f:
+  json.dump(package_json, f, indent=2)
+with open(os.path.join(proxy_dir, "README.md"), "w", encoding="utf-8") as f:
+  f.write(readme)
+
+# Copy strains.json alongside proxy
+import shutil
+shutil.copy(os.path.join(root, "strains.json"), os.path.join(proxy_dir, "strains.json"))
+
+# Zip everything
+zip_path = "/mnt/data/strain_kit_with_proxy.zip"
+with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as z:
+  # root strains.json
+  z.write(os.path.join(root, "strains.json"), arcname="strains.json")
+  # proxy folder
+  for fname in ["server.js", "package.json", "README.md", "strains.json"]:
+    z.write(os.path.join(proxy_dir, fname), arcname=f"strain-proxy/{fname}")
+
+zip_path

@@ -1,0 +1,1 @@
+https://your-strain-proxy.replit.app/strain?name={name}

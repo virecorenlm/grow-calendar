@@ -1,0 +1,46 @@
+[
+  {
+    "name": "GMO Cookies",
+    "type": "indica-leaning hybrid",
+    "lineage": "Girl Scout Cookies x Chemdawg",
+    "thc": "25-30%",
+    "cbd": "<1%",
+    "terpenes": "caryophyllene, limonene, humulene",
+    "effects": "relaxing, heavy, couch-lock potential",
+    "aroma": "garlic, diesel, earth",
+    "notes": "High potency; ease up for new users."
+  },
+  {
+    "name": "Blue Dream",
+    "type": "sativa-leaning hybrid",
+    "lineage": "Blueberry x Haze",
+    "thc": "18-24%",
+    "cbd": "<1%",
+    "terpenes": "myrcene, pinene, caryophyllene",
+    "effects": "uplifting, clear-headed, creative",
+    "aroma": "berry, sweet, herbal",
+    "notes": "Crowd favorite; balanced daytime strain."
+  },
+  {
+    "name": "Wedding Cake",
+    "type": "indica-leaning hybrid",
+    "lineage": "Triangle Kush x Animal Mints",
+    "thc": "20-27%",
+    "cbd": "<1%",
+    "terpenes": "limonene, caryophyllene, linalool",
+    "effects": "relaxing, euphoric, appetite-stimulating",
+    "aroma": "vanilla, earthy, pepper",
+    "notes": "Often dense buds; strong evening option."
+  },
+  {
+    "name": "GSC",
+    "type": "hybrid",
+    "lineage": "OG Kush x Durban Poison",
+    "thc": "19-25%",
+    "cbd": "<1%",
+    "terpenes": "caryophyllene, limonene, humulene",
+    "effects": "calming, euphoric, full-body",
+    "aroma": "sweet, earthy, mint",
+    "notes": "Classic; sometimes called Girl Scout Cookies."
+  }
+]

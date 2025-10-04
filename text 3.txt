@@ -1,0 +1,420 @@
+# Recreate files after kernel reset and zip again
+import os, zipfile, json
+
+root = "/mnt/data/grow_pwa"
+os.makedirs(root, exist_ok=True)
+
+index_html = """\
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Grow Tracker (Offline PWA)</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#0b3d0b">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>🌱 Grow Tracker</h1>
+    <nav>
+      <button id="tab-plants" class="tab active">Plants</button>
+      <button id="tab-events" class="tab">Events</button>
+      <button id="tab-stats" class="tab">Stats</button>
+      <button id="tab-settings" class="tab">Settings</button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="view-plants" class="view visible">
+      <h2>Plants</h2>
+      <form id="plant-form">
+        <div class="grid">
+          <label>Name<input required name="name" placeholder="e.g., Nola"></label>
+          <label>Strain<input name="strain" placeholder="e.g., Freeze Land"></label>
+          <label>Stage
+            <select name="stage">
+              <option>seed</option>
+              <option selected>veg</option>
+              <option>flower</option>
+              <option>dry</option>
+              <option>cure</option>
+            </select>
+          </label>
+          <label>Start Date<input type="date" name="start_date"></label>
+          <label>Tags<input name="tags" placeholder="comma,separated"></label>
+        </div>
+        <label>Notes<textarea name="notes" rows="3" placeholder="Notes..."></textarea></label>
+        <button type="submit">Add Plant</button>
+      </form>
+      <ul id="plant-list"></ul>
+    </section>
+
+    <section id="view-events" class="view">
+      <h2>Events</h2>
+      <form id="event-form">
+        <div class="grid">
+          <label>Plant
+            <select id="event-plant" name="plant_id"></select>
+          </label>
+          <label>Type
+            <select name="type">
+              <option selected>feed</option>
+              <option>water</option>
+              <option>transplant</option>
+              <option>defoliate</option>
+              <option>flip_12_12</option>
+              <option>harvest</option>
+              <option>measure</option>
+            </select>
+          </label>
+          <label>Date/Time<input type="datetime-local" name="when"></label>
+          <label>Volume (ml)<input type="number" step="1" name="volume_ml"></label>
+          <label>pH<input type="number" step="0.01" name="ph"></label>
+          <label>EC/PPM<input type="number" step="0.01" name="ppm"></label>
+        </div>
+        <label>Recipe / Notes<textarea name="notes" rows="3" placeholder="N-P-K, additives, temps, RH, VPD..."></textarea></label>
+        <button type="submit">Log Event</button>
+      </form>
+
+      <h3>Upcoming / Recent</h3>
+      <ul id="event-list"></ul>
+    </section>
+
+    <section id="view-stats" class="view">
+      <h2>Stats</h2>
+      <div id="stats-panel">
+        <p>Total plants: <span id="stat-plants">0</span></p>
+        <p>Events logged (30d): <span id="stat-events">0</span></p>
+        <p>Next feed due: <span id="stat-next-feed">—</span></p>
+      </div>
+    </section>
+
+    <section id="view-settings" class="view">
+      <h2>Settings</h2>
+      <button id="export-json">Export JSON</button>
+      <input type="file" id="import-json" accept="application/json">
+      <p class="hint">Data is saved locally (IndexedDB). You can export/import anytime.</p>
+      <p><label><input type="checkbox" id="enable-notifs"> Enable Notifications</label></p>
+      <p class="hint">If enabled, the app can remind you of feeds/waterings (browser permission required).</p>
+    </section>
+  </main>
+
+  <footer>
+    <small>Offline-first. Your data stays on-device. — v0.1</small>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
+"""
+
+style_css = """\
+:root {
+  --bg: #0f1a0f;
+  --card: #132813;
+  --text: #e7ffe7;
+  --muted: #a6d5a6;
+  --accent: #61d961;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; }
+header { padding: 12px 16px; background: #0c150c; border-bottom: 1px solid #1f3a1f; }
+h1 { margin: 0 0 8px; font-size: 20px; }
+nav { display: flex; gap: 8px; }
+.tab { background: #183618; color: var(--text); border: 1px solid #295229; padding: 6px 10px; border-radius: 6px; cursor: pointer; }
+.tab.active { background: var(--accent); color: #041004; border-color: var(--accent); }
+main { padding: 16px; }
+.view { display: none; }
+.view.visible { display: block; }
+form { background: var(--card); padding: 12px; border: 1px solid #1f3a1f; border-radius: 8px; margin-bottom: 12px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
+label { display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+input, select, textarea, button { border-radius: 6px; border: 1px solid #295229; background: #0e1f0e; color: var(--text); padding: 8px; }
+button { cursor: pointer; }
+ul { list-style: none; padding: 0; margin: 0; }
+li.card { background: var(--card); border: 1px solid #1f3a1f; border-radius: 8px; padding: 10px; margin-bottom: 8px; }
+footer { padding: 12px 16px; border-top: 1px solid #1f3a1f; color: var(--muted); }
+.hint { color: var(--muted); font-size: 12px; }
+"""
+
+app_js = """\
+// Minimal IndexedDB wrapper
+const DB_NAME = 'grow-tracker-db';
+const DB_VERSION = 1;
+let db;
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains('plants')) db.createObjectStore('plants', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('events')) db.createObjectStore('events', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'key' });
+    };
+    req.onsuccess = () => { db = req.result; resolve(db); };
+    req.onerror = () => reject(req.error);
+  });
+}
+function tx(store, mode='readonly') { return db.transaction(store, mode).objectStore(store); }
+function id() { return Math.random().toString(36).slice(2) + Date.now().toString(36); }
+
+async function put(store, value) { return new Promise((res, rej)=>{ const r=tx(store,'readwrite').put(value); r.onsuccess=()=>res(value); r.onerror=()=>rej(r.error); }); }
+async function getAll(store) { return new Promise((res, rej)=>{ const r=tx(store).getAll(); r.onsuccess=()=>res(r.result||[]); r.onerror=()=>rej(r.error); }); }
+async function remove(store, key) { return new Promise((res, rej)=>{ const r=tx(store,'readwrite').delete(key); r.onsuccess=()=>res(); r.onerror=()=>rej(r.error); }); }
+
+// UI helpers
+const $ = (q) => document.querySelector(q);
+const $$ = (q) => Array.from(document.querySelectorAll(q));
+
+function switchTab(viewId) {
+  $$('.tab').forEach(b => b.classList.remove('active'));
+  $$('.view').forEach(v => v.classList.remove('visible'));
+  const btn = document.getElementById('tab-' + viewId.split('-')[1]);
+  if (btn) btn.classList.add('active');
+  document.getElementById('view-' + viewId.split('-')[1]).classList.add('visible');
+}
+
+// Plants
+async function refreshPlants() {
+  const plants = await getAll('plants');
+  const list = $('#plant-list');
+  const sel = $('#event-plant');
+  list.innerHTML = '';
+  sel.innerHTML = '';
+  plants.forEach(p => {
+    const li = document.createElement('li');
+    li.className = 'card';
+    li.innerHTML = `<b>${p.name}</b> — ${p.strain||'—'} · <i>${p.stage}</i> · started ${p.start_date||'—'}<br><small>${p.tags||''}</small><br>${p.notes||''}
+      <div style="margin-top:6px;display:flex;gap:6px;">
+        <button data-del="${p.id}">Delete</button>
+      </div>`;
+    list.appendChild(li);
+
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = p.name;
+    sel.appendChild(opt);
+  });
+  $('#stat-plants').textContent = plants.length;
+
+  // delete handlers
+  list.querySelectorAll('button[data-del]').forEach(btn => {
+    btn.addEventListener('click', async () => { await remove('plants', btn.dataset.del); await refreshPlants(); });
+  });
+}
+
+async function addPlant(form) {
+  const data = Object.fromEntries(new FormData(form));
+  const plant = {
+    id: id(),
+    name: data.name.trim(),
+    strain: data.strain.trim(),
+    stage: data.stage,
+    start_date: data.start_date || null,
+    tags: data.tags.trim(),
+    notes: data.notes.trim(),
+    created_at: new Date().toISOString()
+  };
+  await put('plants', plant);
+  form.reset();
+  await refreshPlants();
+}
+
+// Events
+async function refreshEvents() {
+  const events = (await getAll('events')).sort((a,b)=> new Date(b.when) - new Date(a.when));
+  const ul = $('#event-list');
+  ul.innerHTML = '';
+  let count30 = 0;
+  const now = Date.now();
+  const day30 = 30*24*60*60*1000;
+  for (const ev of events) {
+    if (now - new Date(ev.when).getTime() < day30) count30++;
+    const li = document.createElement('li');
+    li.className = 'card';
+    li.innerHTML = `<b>${ev.type}</b> @ ${new Date(ev.when).toLocaleString()} — ${ev.plant_name||ev.plant_id}<br>
+      pH: ${ev.ph||'—'} · PPM/EC: ${ev.ppm||'—'} · Vol: ${ev.volume_ml||'—'} ml<br>${ev.notes||''}
+      <div style="margin-top:6px;display:flex;gap:6px;">
+        <button data-del-ev="${ev.id}">Delete</button>
+      </div>`;
+    ul.appendChild(li);
+  }
+  $('#stat-events').textContent = count30;
+  // Simple next feed due: pick next 'feed' event + 2 days
+  const feeds = events.filter(e=>e.type==='feed');
+  if (feeds.length) {
+    const next = new Date(new Date(feeds[0].when).getTime() + 2*24*60*60*1000);
+    $('#stat-next-feed').textContent = next.toLocaleString();
+  } else {
+    $('#stat-next-feed').textContent = '—';
+  }
+
+  ul.querySelectorAll('button[data-del-ev]').forEach(btn => {
+    btn.addEventListener('click', async () => { await remove('events', btn.dataset.delEv); await refreshEvents(); });
+  });
+}
+
+async function addEvent(form) {
+  const data = Object.fromEntries(new FormData(form));
+  const plants = await getAll('plants');
+  const plant = plants.find(p => p.id === data.plant_id);
+  const ev = {
+    id: id(),
+    plant_id: data.plant_id,
+    plant_name: plant ? plant.name : data.plant_id,
+    type: data.type,
+    when: data.when || new Date().toISOString(),
+    volume_ml: data.volume_ml ? Number(data.volume_ml) : null,
+    ph: data.ph ? Number(data.ph) : null,
+    ppm: data.ppm ? Number(data.ppm) : null,
+    notes: data.notes?.trim() || ''
+  };
+  await put('events', ev);
+  form.reset();
+  await refreshEvents();
+}
+
+// Export/Import
+async function exportJSON() {
+  const plants = await getAll('plants');
+  const events = await getAll('events');
+  const payload = { exported_at: new Date().toISOString(), plants, events };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'grow_tracker_export.json';
+  a.click();
+}
+
+async function importJSON(file) {
+  const text = await file.text();
+  const data = JSON.parse(text);
+  if (Array.isArray(data.plants)) {
+    for (const p of data.plants) await put('plants', p);
+  }
+  if (Array.isArray(data.events)) {
+    for (const e of data.events) await put('events', e);
+  }
+  await refreshPlants();
+  await refreshEvents();
+}
+
+// Notifications
+async function requestNotifs(enabled) {
+  if (!('Notification' in window)) return alert('Notifications not supported');
+  if (enabled && Notification.permission !== 'granted') {
+    await Notification.requestPermission();
+  }
+  localStorage.setItem('notifs_enabled', enabled ? '1' : '0');
+}
+
+function notify(title, body) {
+  if (Notification.permission === 'granted' && localStorage.getItem('notifs_enabled')==='1') {
+    new Notification(title, { body });
+  }
+}
+
+// Tabs
+$('#tab-plants').addEventListener('click', ()=>switchTab('view-plants'));
+$('#tab-events').addEventListener('click', ()=>switchTab('view-events'));
+$('#tab-stats').addEventListener('click', ()=>switchTab('view-stats'));
+$('#tab-settings').addEventListener('click', ()=>switchTab('view-settings'));
+
+// Forms
+$('#plant-form').addEventListener('submit', (e)=>{ e.preventDefault(); addPlant(e.target); notify('Plant added','Saved locally'); });
+$('#event-form').addEventListener('submit', (e)=>{ e.preventDefault(); addEvent(e.target); notify('Event logged','Saved locally'); });
+$('#export-json').addEventListener('click', exportJSON);
+$('#import-json').addEventListener('change', (e)=>{ if (e.target.files[0]) importJSON(e.target.files[0]); });
+$('#enable-notifs').addEventListener('change', (e)=> requestNotifs(e.target.checked));
+
+// Init
+(async function init(){
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js');
+  }
+  await openDB();
+  await refreshPlants();
+  await refreshEvents();
+  $('#enable-notifs').checked = localStorage.getItem('notifs_enabled')==='1';
+})();
+"""
+
+manifest = {
+  "name": "Grow Tracker",
+  "short_name": "Grow",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0b3d0b",
+  "theme_color": "#0b3d0b",
+  "icons": []
+}
+manifest_json = json.dumps(manifest, indent=2)
+
+sw_js = """\
+// Simple offline cache for PWA shell
+const CACHE_NAME = 'grow-cache-v1';
+const ASSETS = ['/', '/index.html', '/style.css', '/app.js', '/manifest.webmanifest'];
+
+self.addEventListener('install', (e) => {
+  e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(ASSETS)));
+});
+
+self.addEventListener('activate', (e) => {
+  e.waitUntil(self.clients.claim());
+});
+
+self.addEventListener('fetch', (e) => {
+  e.respondWith(
+    caches.match(e.request).then((r) => r || fetch(e.request))
+  );
+});
+"""
+
+readme = """\
+# Grow Tracker (Offline PWA)
+
+**What this is:** a super-simple, offline-first plant/grow tracker you can open on your phone and "Add to Home Screen".
+- Works without internet (PWA + service worker).
+- Stores data locally in your browser (IndexedDB).
+- Lets you export/import JSON backups.
+- Tracks Plants and Events (feeds, watering, transplant, flip, harvest, measurements).
+
+## Quick Start (Replit or any static host)
+1. Upload these files to Replit (static HTML project) or any static host.
+2. Open the URL on your phone, use "Add to Home Screen".
+3. Start adding plants and logging events.
+4. Export JSON regularly (good practice).
+
+## Data Model (v0.1)
+- Plant: { id, name, strain, stage, start_date, tags, notes, created_at }
+- Event: { id, plant_id, plant_name, type, when, volume_ml, ph, ppm, notes }
+
+## Roadmap ideas
+- Calendar view / reminders
+- Photos per plant (file picker -> local URL)
+- VPD calculator
+- Feed recipes library + templates
+- Multi-grow rooms / tents
+- Cloud sync (optional; privacy-first)
+
+## Privacy
+All data stays **on-device** unless you export JSON yourself.
+"""
+
+# Write files
+with open(os.path.join(root, "index.html"), "w", encoding="utf-8") as f: f.write(index_html)
+with open(os.path.join(root, "style.css"), "w", encoding="utf-8") as f: f.write(style_css)
+with open(os.path.join(root, "app.js"), "w", encoding="utf-8") as f: f.write(app_js)
+with open(os.path.join(root, "manifest.webmanifest"), "w", encoding="utf-8") as f: f.write(manifest_json)
+with open(os.path.join(root, "sw.js"), "w", encoding="utf-8") as f: f.write(sw_js)
+with open(os.path.join(root, "README.txt"), "w", encoding="utf-8") as f: f.write(readme)
+
+zip_path = "/mnt/data/grow_tracker_pwa_starter.zip"
+with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as z:
+    for name in ["index.html","style.css","app.js","manifest.webmanifest","sw.js","README.txt"]:
+        z.write(os.path.join(root, name), arcname=name)
+
+zip_path

@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Grow Tracker (Offline PWA)</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#0b3d0b">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>🌱 Grow Tracker</h1>
+    <nav>
+      <button id="tab-plants" class="tab active">Plants</button>
+      <button id="tab-events" class="tab">Events</button>
+      <button id="tab-stats" class="tab">Stats</button>
+      <button id="tab-settings" class="tab">Settings</button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="view-plants" class="view visible">
+      <h2>Plants</h2>
+      <form id="plant-form">
+        <div class="grid">
+          <label>Name<input required name="name" placeholder="e.g., Nola"></label>
+          <label>Strain<input name="strain" placeholder="e.g., Freeze Land"></label>
+          <label>Stage
+            <select name="stage">
+              <option>seed</option>
+              <option selected>veg</option>
+              <option>flower</option>
+              <option>dry</option>
+              <option>cure</option>
+            </select>
+          </label>
+          <label>Start Date<input type="date" name="start_date"></label>
+          <label>Tags<input name="tags" placeholder="comma,separated"></label>
+        </div>
+        <label>Notes<textarea name="notes" rows="3" placeholder="Notes..."></textarea></label>
+        <button type="submit">Add Plant</button>
+      </form>
+      <ul id="plant-list"></ul>
+    </section>
+
+    <section id="view-events" class="view">
+      <h2>Events</h2>
+      <form id="event-form">
+        <div class="grid">
+          <label>Plant
+            <select id="event-plant" name="plant_id"></select>
+          </label>
+          <label>Type
+            <select name="type">
+              <option selected>feed</option>
+              <option>water</option>
+              <option>transplant</option>
+              <option>defoliate</option>
+              <option>flip_12_12</option>
+              <option>harvest</option>
+              <option>measure</option>
+            </select>
+          </label>
+          <label>Date/Time<input type="datetime-local" name="when"></label>
+          <label>Volume (ml)<input type="number" step="1" name="volume_ml"></label>
+          <label>pH<input type="number" step="0.01" name="ph"></label>
+          <label>EC/PPM<input type="number" step="0.01" name="ppm"></label>
+        </div>
+        <label>Recipe / Notes<textarea name="notes" rows="3" placeholder="N-P-K, additives, temps, RH, VPD..."></textarea></label>
+        <button type="submit">Log Event</button>
+      </form>
+
+      <h3>Upcoming / Recent</h3>
+      <ul id="event-list"></ul>
+    </section>
+
+    <section id="view-stats" class="view">
+      <h2>Stats</h2>
+      <div id="stats-panel">
+        <p>Total plants: <span id="stat-plants">0</span></p>
+        <p>Events logged (30d): <span id="stat-events">0</span></p>
+        <p>Next feed due: <span id="stat-next-feed">—</span></p>
+      </div>
+    </section>
+
+    <section id="view-settings" class="view">
+      <h2>Settings</h2>
+      <button id="export-json">Export JSON</button>
+      <input type="file" id="import-json" accept="application/json">
+      <p class="hint">Data is saved locally (IndexedDB). You can export/import anytime.</p>
+      <p><label><input type="checkbox" id="enable-notifs"> Enable Notifications</label></p>
+      <p class="hint">If enabled, the app can remind you of feeds/waterings (browser permission required).</p>
+    </section>
+  </main>
+
+  <footer>
+    <small>Offline-first. Your data stays on-device. — v0.1</small>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
